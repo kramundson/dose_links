@@ -33,10 +33,6 @@ dosage_genos_training <- dosage_genos %>%
 ```
 
 ```{r}
-# View(filter(dosage_genos_training, bin == "chr01_10000000_10250000"))
-```
-
-```{r}
 # filter out affected chromosome for each trisomic. These have been dealt with already.
 dosage_genos_trifilt <-  dosage_genos_training %>% 
   filter(!(sample == "2x_LOP868_238" & chrom == "chr01")) %>%
@@ -59,12 +55,45 @@ dosage_genos_trifilt <-  dosage_genos_training %>%
   filter(!(sample == "2x_LOP868_397" & chrom == "chr10")) %>%
   filter(!(sample == "2x_LOP868_373" & chrom == "chr02")) %>%
   filter(!(sample == "2x_LOP868_128" & chrom == "chr12"))
-unique(dosage_genos_trifilt$bin)
-str(dosage_genos_trifilt)
 ```
 
 ```{r}
+# split by bin, did this to get contingency tables of dosage genotypes
 dosage_genos_split <- split(dosage_genos_trifilt, f=dosage_genos_trifilt$bin)
+```
+
+```{r}
+# remove outlier individuals from data frame to be parsed while constructing fisher contingency tables
+# this seems needlessly complicated...
+
+# returns a list of named vectors. names of list are bin names. names of vectors are outlier dosage allele in that bin
+outliers <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)[which(table(x$dosage.gt) <= 3)])
+
+# traverse outliers, parsing out bins and outlier dosage allele in each
+z <- list()
+
+# loop populates list of outlier bins and dosage alleles
+for (i in 1:length(outliers)) {
+  if (length(outliers[[i]]) >= 1) { # needs to skip bins without rows
+  z[[i]] <- data.frame('dosage.gt' = names(outliers[[i]]),
+             'bin' = names(outliers)[[i]])
+  }
+}
+
+# bind rows to get single data frame of bin-allele combinations of all outliers
+z.done <- bind_rows(z) %>% 
+  mutate(allele = paste(bin, dosage.gt, sep = "_"))
+
+# using z.done, remove outlier bin-allele combinations from table of dosage alleles by individual.
+dosage_genos_outlierfilt <- dosage_genos_trifilt %>% 
+  mutate(allele = paste(bin, dosage.gt, sep = "_")) %>% 
+  filter(!allele %in% z.done$allele)
+
+# did we filter anything?
+nrow(dosage_genos_trifilt)
+nrow(dosage_genos_outlierfilt) # yes
+
+# parsable data structure for nested loops is stored in dosage_genos_outlierfilt
 ```
 
 ```{r}
@@ -167,12 +196,41 @@ geno.list[[2]]
 ```
 
 ```{r}
+# sausage making to overhaul fisher exact comparison to be more like Luca's
+
 # need to find subset of individuals that have the matching genotype in the target bin
-# gonna have to get funky here
-watchlist <- unique(filter(monomorph_exclude, bin == "chr01_0_250000" & dosage.gt == 1)$sample) 
-watchlist
-checklist <- filter(monomorph_exclude, bin == "chr01_1000000_1250000" & sample %in% watchlist)
-table(checklist$dosage.gt)
+# then, the question is whether this subset is randomly distributed amongst the alleles in the target bin or not?
+
+# keep in mind i would've locked in the allele comparison by this point
+
+# source.bin <- "chr01_1000000_1250000"
+# source.cluster <- 1
+# 
+# target.bin <- "chr01_0_250000"
+# target.cluster <- 1
+# 
+# # define individuals in source bin
+# match.source.allele <- dosage_genos_outlierfilt %>% 
+#   filter(bin == source.bin & dosage.gt == source.cluster)
+# nrow(match.source.allele)
+# 
+# # look at same individuals in target bin
+# target.allele.dist <- dosage_genos_outlierfilt %>% 
+#   filter(bin == target.bin & sample %in% match.source.allele$sample)
+# 
+# g <- table(target.allele.dist$dosage.gt)
+# 
+# target.cluster.in.count <- g[which(names(g) == target.cluster)]
+# target.cluster.out.count <- sum(g) - target.cluster.in.count
+# target.cluster.null <- round(mean(g))
+# 
+# target.cluster.in.count
+# target.cluster.out.count
+# target.cluster.null
+# 
+# matrix(c(target.cluster.in.count, target.cluster.out.count, target.cluster.null, target.cluster.null), nrow = 2)
+
+# not sure how this is going to handle multialleleic cases. There are a lot of them...
 ```
 
 ```{r}
@@ -180,19 +238,33 @@ table(checklist$dosage.gt)
 fisher.list <- list() # stores 2x2 contingency tables, lapply call fisher exact test at the end.
 
 # nonredundant all by all pairwise comparison of data frames in list. each fisher contingency table saved as a named entry in the list.
-for (x in seq(1, length(geno.list)-1)) {
+for (x in seq(1, length(geno.list)-1)) { # loop through all except last bins. these are "source"
   # print(x)
-  for (y in seq(x+1, length(geno.list))) {
+  for (y in seq(x+1, length(geno.list))) { # all pairwise "target" bins, given the same source bin
     # print(y)
-    for (i in 1:nrow(geno.list[[x]])) {
-       for (j in 1:nrow(geno.list[[y]])) {
-         observed.in <- geno.list[[y]][i,3]
-         # print(observed.in)
-         observed.out <- sum(geno.list[[y]]$Freq) - observed.in
-         # print(observed.out)
-         expected <- geno.list[[y]][j,3]
-         # print(expected)
-         fisher.table <- matrix(c(observed.in, observed.out, expected, expected), nrow = 2)
+    for (i in 1:nrow(geno.list[[x]])) { # loop all alleles in source bin at hand
+       for (j in 1:nrow(geno.list[[y]])) { # loop all alleles in target bin at hand
+         source.bin <- geno.list[[x]][i,1]
+         source.gt  <- geno.list[[x]][i,2]
+         target.bin <- geno.list[[y]][j,1]
+         target.gt  <- geno.list[[y]][j,2]
+         # print(source.bin)
+         # print(source.gt)
+         # print(target.bin)
+         # print(target.gt)
+
+         # define individuals in source bin
+         match.source.allele <- dosage_genos_outlierfilt %>%
+            filter(bin == source.bin & dosage.gt == source.gt)
+         # print(unique(match.source.allele$allele))
+         target.allele.dist <- dosage_genos_outlierfilt %>%
+            filter(bin == target.bin & sample %in% match.source.allele$sample)
+         g <- table(target.allele.dist$dosage.gt)
+         # print(g)
+         target.cluster.in.count <- g[which(names(g) == target.cluster)]
+         target.cluster.out.count <- sum(g) - target.cluster.in.count
+         target.cluster.null <- round(mean(g))
+         fisher.table <- matrix(c(target.cluster.in.count, target.cluster.out.count, target.cluster.null, target.cluster.null), nrow = 2)
          list.name <- paste(geno.list[[x]]$bin_allele[i], geno.list[[y]]$bin_allele[j], sep = " ")
          fisher.list[[list.name]] <- fisher.table
          # print(list.name)
@@ -200,12 +272,38 @@ for (x in seq(1, length(geno.list)-1)) {
     }
   }
 }
+
 fisher.list
 ```
 
 ```{r}
+# nonredundant all by all pairwise comparison of data frames in list. each fisher contingency table saved as a named entry in the list.
+# for (x in seq(1, length(geno.list)-1)) { # loop through all except last bins. these are "source"
+#   # print(x)
+#   for (y in seq(x+1, length(geno.list))) { # all pairwise "target" bins, given the same source bin
+#     # print(y)
+#     for (i in 1:nrow(geno.list[[x]])) { # loop all alleles in source bin at hand
+#        for (j in 1:nrow(geno.list[[y]])) { # loop all alleles in target bin at hand
+#          observed.in <- geno.list[[y]][i,3] # this has to change to match the sample lookup written above. Before I change too many things, leave this code block for posterity
+#          # print(observed.in)
+#          observed.out <- sum(geno.list[[y]]$Freq) - observed.in
+#          # print(observed.out)
+#          expected <- geno.list[[y]][j,3]
+#          # print(expected)
+#          fisher.table <- matrix(c(observed.in, observed.out, expected, expected), nrow = 2)
+#          list.name <- paste(geno.list[[x]]$bin_allele[i], geno.list[[y]]$bin_allele[j], sep = " ")
+#          fisher.list[[list.name]] <- fisher.table
+#          # print(list.name)
+#       }
+#     }
+#   }
+# }
+# fisher.list
+```
+
+```{r}
 # once fisher list has been constructed, do fisher exact test on all tables in fisher.list with an lapply call
-lapply(fisher.list, fisher.test)
+# lapply(fisher.list, fisher.test)
 ```
 
 ```{r}
