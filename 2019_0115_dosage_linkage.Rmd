@@ -1,0 +1,179 @@
+---
+title: "2019_0115_fresh_start"
+author: "Kirk Amundson"
+date: "2019_0115"
+output: html_notebook
+---
+
+TODO:
+
+1. Define criteria for filtering out monomorphic bins. Either a percentage or average threshold will work.
+   Note, in a typical mapping context, alleles this rare would be considered severely distored and removed on the
+   basis of a chi square test or similar.
+2. Multiple test correction
+3. Loops for nonredundantly comparing alleles at all polymorphic loci. Done
+4. Generate input data structure with lapply call. Doneish.
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+# add monomorphic filter as high up as possible to make compute faster
+dosage_genos <- read_tsv("2019_0107_LOP_250k_dosage_genotypes_40percband.tsv", col_names = T) %>% 
+  mutate(bin = paste(chrom, start, end, sep = "_")) %>%
+  filter(bin %in% c("chr01_0_250000", "chr01_250000_500000")) # training wheels
+head(dosage_genos)
+```
+
+```{r}
+# filter out affected chromosome for each trisomic. These have been dealt with already.
+dosage_genos_trifilt %>% dosage_genos
+  filter(!(sample == "2x_LOP868_238" & chrom == "chr01")) %>%
+  filter(!(sample == "2x_LOP868_259" & chrom == "chr02")) %>%
+  filter(!(sample == "2x_LOP868_292" & chrom == "chr02")) %>%
+  filter(!(sample == "2x_LOP868_452" & chrom == "chr02")) %>%
+  filter(!(sample == "2x_LOP868_460" & chrom == "chr02")) %>%
+  filter(!(sample == "2x_LOP868_1157" & chrom == "chr02")) %>%
+  filter(!(sample == "2x_LOP868_1190" & chrom == "chr02")) %>%
+  filter(!(sample == "2x_LOP868_373" & chrom == "chr03")) %>%
+  filter(!(sample == "2x_LOP868_028" & chrom == "chr04")) %>%
+  filter(!(sample == "2x_LOP868_433" & chrom == "chr04")) %>%
+  filter(!(sample == "2x_LOP868_293" & chrom == "chr05")) %>%
+  filter(!(sample == "2x_LOP868_363" & chrom == "chr05")) %>%
+  filter(!(sample == "2x_LOP868_172" & chrom == "chr06")) %>%
+  filter(!(sample == "2x_LOP868_065" & chrom == "chr07")) %>%
+  filter(!(sample == "2x_LOP868_272" & chrom == "chr07")) %>%
+  filter(!(sample == "2x_LOP868_108" & chrom == "chr08")) %>%
+  filter(!(sample == "2x_LOP868_488" & chrom == "chr08")) %>%
+  filter(!(sample == "2x_LOP868_397" & chrom == "chr10")) %>%
+  filter(!(sample == "2x_LOP868_373" & chrom == "chr02")) %>%
+  filter(!(sample == "2x_LOP868_128" & chrom == "chr12"))
+```
+
+```{r}
+dosage_genos_split <- split(dosage_genos, f=dosage_genos$bin)
+```
+
+INSERTED CARELESSLY, NEED TO DEBUG
+```{r}
+# filter out other unique dosage variants. May need to adjust this thresholding.
+outliers_exclude <- lapply(dosage_genos_250kbins_split, function(x) table(x$dosage.gt)[which(table(x$dosage.gt) > 3)])
+```
+
+```{r}
+# what's left? This provides the scope of the analysis: the bins that are polymorphic
+# lifted from other scripts, may need to develop this further
+test <- unlist(lapply(outliers_exclude, function(x) length(x)))
+head(test)
+length(unique(names(which(test >= 2))))
+dosage_variable_bins <- unique(names(which(test >= 2)))
+head(dosage_variable_bins)
+dosage_invariable_bins <- unique(names(which(test < 2)))
+head(dosage_invariable_bins)
+```
+/INSERTED CARELESSLY
+```{r}
+geno_summaries <- lapply(dosage_genos_split, function(x) table(x$dosage.gt))
+```
+
+```{r}
+# start with an example case
+# geno_summaries[[1]]
+# names(geno_summaries[[1]])
+# names(geno_summaries)[1]
+
+# first example data frame
+# example <- data.frame("bin" = names(geno_summaries)[1],
+#                       geno_summaries[[1]]) %>% 
+#   mutate(Var1 = as.character(Var1)) %>% 
+#   mutate(bin_allele = paste(bin, Var1, sep = "_"))
+# example
+
+# second example data frame
+# example2 <- data.frame("bin" = names(geno_summaries)[2],
+#                        geno_summaries[[2]]) %>% 
+#   mutate(Var1 = as.character(Var1)) %>% 
+#   mutate(bin_allele = paste(bin, Var1, sep = "_"))
+# example2
+
+# build Fisher 2x2 contigency tables by comparison of both example data frames
+# for (i in 1:nrow(example)) { # becomes xth entry in geno list
+#   for (j in 1:nrow(example2)) { # becomes x+1th entry in geno list
+#     observed.in <- example2[j,3] # hereafter x+1th entry in geno list, whatever variable I end up using for that.
+#     observed.out <- sum(example2$Freq) - observed.in
+#     expected <- example2[j,3] / 2
+#     fisher.table <- matrix(c(observed.in, observed.out, expected, expected), nrow = 2)
+#     list.name <- paste(example$bin_allele[i], example2$bin_allele[j], sep = " ")
+#     fisher.list[[list.name]] <- fisher.table
+#   }
+# }
+```
+
+```{r}
+# # next, build a more generalizable case using lists
+# geno.list <- list() # stores genotype count data for each nonoverlapping bin
+# 
+# # build two examples as before, but this time have them be in the same list
+# geno.list[[1]] <- data.frame("bin" = names(geno_summaries)[1], geno_summaries[[1]]) %>%
+#   mutate(Var1 = as.character(Var1)) %>%
+#   mutate(bin_allele = paste(bin, Var1, sep = "_"))
+# geno.list[[1]]
+# 
+# # a second listy example
+# geno.list[[2]] <- data.frame("bin" = names(geno_summaries)[2], geno_summaries[[2]]) %>%
+#   mutate(Var1 = as.character(Var1)) %>%
+#   mutate(bin_allele = paste(bin, Var1, sep = "_"))
+# geno.list[[2]]
+```
+
+```{r}
+# Generalizable conversion of genotype summary data to list of summary data
+geno.list <- list() # stores genotype count data for each nonoverlapping bin
+
+# work in progress chunk for generating geno.list using lapply call or loop
+for (i in 1:length(geno_summaries)) {
+  geno.list[[i]] <- data.frame("bin" = names(geno_summaries)[i], geno_summaries[[i]]) %>% 
+    mutate(Var1 = as.character(Var1)) %>% 
+    mutate(bin_allele = paste(bin, Var1, sep = "_"))
+}
+```
+
+```{r}
+# build fisher comparisons for all pairwise allele comparisons between two polymorphic loci
+fisher.list <- list() # stores 2x2 contingency tables, lapply call fisher exact test at the end.
+
+# nonredundant all by all pairwise comparison of data frames in list. each fisher contingency table saved as a named entry in the list.
+for (x in seq(1, length(geno.list)-1)) {
+  # print(x)
+  for (y in seq(x+1, length(geno.list))) {
+    # print(y)
+    for (i in 1:nrow(geno.list[[x]])) {
+       for (j in 1:nrow(geno.list[[y]])) {
+         observed.in <- geno.list[[y]][i,3]
+         # print(observed.in)
+         observed.out <- sum(geno.list[[y]]$Freq) - observed.in
+         # print(observed.out)
+         expected <- geno.list[[y]][j,3] / 2
+         # print(expected)
+         fisher.table <- matrix(c(observed.in, observed.out, expected, expected), nrow = 2)
+         list.name <- paste(geno.list[[x]]$bin_allele[i], geno.list[[y]]$bin_allele[j], sep = " ")
+         fisher.list[[list.name]] <- fisher.table
+         # print(list.name)
+      }
+    }
+  }
+}
+fisher.list
+```
+
+```{r}
+# once fisher list has been constructed, do fisher exact test on all tables in fisher.list with an lapply call
+lapply(fisher.list, fisher.test)
+```
+
+```{r}
+# for visualization, plot 2-D points based on source and target bins. Color by inter-vs intrachromosomal, as well as by
+# significance threshold.
+```
+
