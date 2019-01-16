@@ -9,10 +9,10 @@ TODO:
 
 1. Define criteria for filtering out monomorphic bins. Either a percentage or average threshold will work.
    Note, in a typical mapping context, alleles this rare would be considered severely distored and removed on the
-   basis of a chi square test or similar.
-2. Multiple test correction
-3. Loops for nonredundantly comparing alleles at all polymorphic loci. Done
-4. Generate input data structure with lapply call. Doneish.
+   basis of a chi square test or similar. Done
+2. Loops for nonredundantly comparing alleles at all polymorphic loci. Done
+3. Generate input data structure with lapply call. Doneish.
+4. Multiple test correction. 
 
 ```{r}
 library(tidyverse)
@@ -21,14 +21,24 @@ library(tidyverse)
 ```{r}
 # add monomorphic filter as high up as possible to make compute faster
 dosage_genos <- read_tsv("2019_0107_LOP_250k_dosage_genotypes_40percband.tsv", col_names = T) %>% 
-  mutate(bin = paste(chrom, start, end, sep = "_")) %>%
-  filter(bin %in% c("chr01_0_250000", "chr01_250000_500000")) # training wheels
+  mutate(bin = paste(chrom, start, end, sep = "_"))
+  # filter(bin %in% c("chr01_0_250000", "chr01_250000_500000")) # training wheels, gradually ease off of them
 head(dosage_genos)
 ```
 
 ```{r}
+# progressively ease up on the training wheels
+dosage_genos_training <- dosage_genos %>% 
+  filter(bin %in% unique(dosage_genos$bin)[1:10])
+```
+
+```{r}
+# View(filter(dosage_genos_training, bin == "chr01_10000000_10250000"))
+```
+
+```{r}
 # filter out affected chromosome for each trisomic. These have been dealt with already.
-dosage_genos_trifilt %>% dosage_genos
+dosage_genos_trifilt <-  dosage_genos_training %>% 
   filter(!(sample == "2x_LOP868_238" & chrom == "chr01")) %>%
   filter(!(sample == "2x_LOP868_259" & chrom == "chr02")) %>%
   filter(!(sample == "2x_LOP868_292" & chrom == "chr02")) %>%
@@ -49,32 +59,40 @@ dosage_genos_trifilt %>% dosage_genos
   filter(!(sample == "2x_LOP868_397" & chrom == "chr10")) %>%
   filter(!(sample == "2x_LOP868_373" & chrom == "chr02")) %>%
   filter(!(sample == "2x_LOP868_128" & chrom == "chr12"))
+unique(dosage_genos_trifilt$bin)
+str(dosage_genos_trifilt)
 ```
 
 ```{r}
-dosage_genos_split <- split(dosage_genos, f=dosage_genos$bin)
+dosage_genos_split <- split(dosage_genos_trifilt, f=dosage_genos_trifilt$bin)
 ```
 
-INSERTED CARELESSLY, NEED TO DEBUG
 ```{r}
-# filter out other unique dosage variants. May need to adjust this thresholding.
-outliers_exclude <- lapply(dosage_genos_250kbins_split, function(x) table(x$dosage.gt)[which(table(x$dosage.gt) > 3)])
+# filter out other unique dosage variants. May need to adjust thresholding due to what I'm guessing are undetected tetraploids in the population
+outliers_exclude <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)[which(table(x$dosage.gt) > 3)]) # drops outliers, monomorphic still here
+outliers_exclude
 ```
 
 ```{r}
 # what's left? This provides the scope of the analysis: the bins that are polymorphic
 # lifted from other scripts, may need to develop this further
 test <- unlist(lapply(outliers_exclude, function(x) length(x)))
-head(test)
-length(unique(names(which(test >= 2))))
+# head(test)
+# length(unique(names(which(test >= 2))))
 dosage_variable_bins <- unique(names(which(test >= 2)))
 head(dosage_variable_bins)
 dosage_invariable_bins <- unique(names(which(test < 2)))
 head(dosage_invariable_bins)
 ```
-/INSERTED CARELESSLY
+
 ```{r}
-geno_summaries <- lapply(dosage_genos_split, function(x) table(x$dosage.gt))
+monomorph_exclude <- outliers_exclude[which(names(outliers_exclude) %in% dosage_variable_bins)]
+```
+
+```{r}
+# geno_summaries <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)) # outliers_exclude takes the place of this
+# outliers_exclude
+monomorph_exclude
 ```
 
 ```{r}
@@ -132,11 +150,29 @@ geno_summaries <- lapply(dosage_genos_split, function(x) table(x$dosage.gt))
 geno.list <- list() # stores genotype count data for each nonoverlapping bin
 
 # work in progress chunk for generating geno.list using lapply call or loop
-for (i in 1:length(geno_summaries)) {
-  geno.list[[i]] <- data.frame("bin" = names(geno_summaries)[i], geno_summaries[[i]]) %>% 
+# for (i in 1:length(geno_summaries)) { 
+for (i in 1:length(monomorph_exclude)) { 
+  geno.list[[i]] <- data.frame("bin" = names(monomorph_exclude)[i], monomorph_exclude[[i]]) %>% 
     mutate(Var1 = as.character(Var1)) %>% 
     mutate(bin_allele = paste(bin, Var1, sep = "_"))
 }
+```
+
+```{r}
+geno.list[[1]]
+```
+
+```{r}
+geno.list[[2]]
+```
+
+```{r}
+# need to find subset of individuals that have the matching genotype in the target bin
+# gonna have to get funky here
+watchlist <- unique(filter(monomorph_exclude, bin == "chr01_0_250000" & dosage.gt == 1)$sample) 
+watchlist
+checklist <- filter(monomorph_exclude, bin == "chr01_1000000_1250000" & sample %in% watchlist)
+table(checklist$dosage.gt)
 ```
 
 ```{r}
@@ -154,7 +190,7 @@ for (x in seq(1, length(geno.list)-1)) {
          # print(observed.in)
          observed.out <- sum(geno.list[[y]]$Freq) - observed.in
          # print(observed.out)
-         expected <- geno.list[[y]][j,3] / 2
+         expected <- geno.list[[y]][j,3]
          # print(expected)
          fisher.table <- matrix(c(observed.in, observed.out, expected, expected), nrow = 2)
          list.name <- paste(geno.list[[x]]$bin_allele[i], geno.list[[y]]$bin_allele[j], sep = " ")
