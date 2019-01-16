@@ -28,13 +28,13 @@ head(dosage_genos)
 
 ```{r}
 # progressively ease up on the training wheels
-dosage_genos_training <- dosage_genos %>% 
-  filter(bin %in% unique(dosage_genos$bin)[1:10])
+# dosage_genos_training <- dosage_genos %>% 
+#   filter(bin %in% unique(dosage_genos$bin)[1:10])
 ```
 
 ```{r}
 # filter out affected chromosome for each trisomic. These have been dealt with already.
-dosage_genos_trifilt <-  dosage_genos_training %>% 
+dosage_genos_trifilt <-  dosage_genos %>% 
   filter(!(sample == "2x_LOP868_238" & chrom == "chr01")) %>%
   filter(!(sample == "2x_LOP868_259" & chrom == "chr02")) %>%
   filter(!(sample == "2x_LOP868_292" & chrom == "chr02")) %>%
@@ -99,7 +99,7 @@ nrow(dosage_genos_outlierfilt) # yes
 ```{r}
 # filter out other unique dosage variants. May need to adjust thresholding due to what I'm guessing are undetected tetraploids in the population
 outliers_exclude <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)[which(table(x$dosage.gt) > 3)]) # drops outliers, monomorphic still here
-outliers_exclude
+# outliers_exclude
 ```
 
 ```{r}
@@ -116,16 +116,12 @@ head(dosage_invariable_bins)
 
 ```{r}
 monomorph_exclude <- outliers_exclude[which(names(outliers_exclude) %in% dosage_variable_bins)]
-```
-
-```{r}
-# geno_summaries <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)) # outliers_exclude takes the place of this
-# outliers_exclude
-monomorph_exclude
+head(monomorph_exclude)
 ```
 
 ```{r}
 # start with an example case
+# geno_summaries <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)) # outliers_exclude takes the place of this
 # geno_summaries[[1]]
 # names(geno_summaries[[1]])
 # names(geno_summaries)[1]
@@ -188,21 +184,13 @@ for (i in 1:length(monomorph_exclude)) {
 ```
 
 ```{r}
-geno.list[[1]]
-```
-
-```{r}
-geno.list[[2]]
-```
-
-```{r}
-# sausage making to overhaul fisher exact comparison to be more like Luca's
-
-# need to find subset of individuals that have the matching genotype in the target bin
-# then, the question is whether this subset is randomly distributed amongst the alleles in the target bin or not?
-
-# keep in mind i would've locked in the allele comparison by this point
-
+# # sausage making to overhaul fisher exact comparison to be more like Luca's
+# 
+# # need to find subset of individuals that have the matching genotype in the target bin
+# # then, the question is whether this subset is randomly distributed amongst the alleles in the target bin or not?
+# 
+# # keep in mind i would've locked in the allele comparison by this point
+# 
 # source.bin <- "chr01_1000000_1250000"
 # source.cluster <- 1
 # 
@@ -210,12 +198,12 @@ geno.list[[2]]
 # target.cluster <- 1
 # 
 # # define individuals in source bin
-# match.source.allele <- dosage_genos_outlierfilt %>% 
+# match.source.allele <- dosage_genos_outlierfilt %>%
 #   filter(bin == source.bin & dosage.gt == source.cluster)
 # nrow(match.source.allele)
 # 
 # # look at same individuals in target bin
-# target.allele.dist <- dosage_genos_outlierfilt %>% 
+# target.allele.dist <- dosage_genos_outlierfilt %>%
 #   filter(bin == target.bin & sample %in% match.source.allele$sample)
 # 
 # g <- table(target.allele.dist$dosage.gt)
@@ -229,8 +217,8 @@ geno.list[[2]]
 # target.cluster.null
 # 
 # matrix(c(target.cluster.in.count, target.cluster.out.count, target.cluster.null, target.cluster.null), nrow = 2)
-
-# not sure how this is going to handle multialleleic cases. There are a lot of them...
+# 
+# # not sure how this is going to handle multialleleic cases. There are a lot of them...
 ```
 
 ```{r}
@@ -248,32 +236,73 @@ for (x in seq(1, length(geno.list)-1)) { # loop through all except last bins. th
          source.gt  <- geno.list[[x]][i,2]
          target.bin <- geno.list[[y]][j,1]
          target.gt  <- geno.list[[y]][j,2]
-         # print(source.bin)
-         # print(source.gt)
-         # print(target.bin)
-         # print(target.gt)
-
          # define individuals in source bin
          match.source.allele <- dosage_genos_outlierfilt %>%
             filter(bin == source.bin & dosage.gt == source.gt)
-         # print(unique(match.source.allele$allele))
          target.allele.dist <- dosage_genos_outlierfilt %>%
-            filter(bin == target.bin & sample %in% match.source.allele$sample)
+            filter(bin == target.bin & sample %in% match.source.allele$sample) # why is this failing? It worked before!
          g <- table(target.allele.dist$dosage.gt)
-         # print(g)
-         target.cluster.in.count <- g[which(names(g) == target.cluster)]
+         target.cluster.in.count <- g[which(names(g) == target.gt)]
          target.cluster.out.count <- sum(g) - target.cluster.in.count
          target.cluster.null <- round(mean(g))
          fisher.table <- matrix(c(target.cluster.in.count, target.cluster.out.count, target.cluster.null, target.cluster.null), nrow = 2)
          list.name <- paste(geno.list[[x]]$bin_allele[i], geno.list[[y]]$bin_allele[j], sep = " ")
          fisher.list[[list.name]] <- fisher.table
-         # print(list.name)
       }
     }
   }
 }
+# fisher.list 
+```
 
-fisher.list
+```{r}
+# TODO: Parse Fisher exact output, return as flat table so I can finish making new correlation matrix
+fisher.price <- lapply(fisher.list, function(x) fisher.test(x))
+fisher.price[[1]]
+```
+
+```{r}
+# init empty data frame
+fisher.df <- data.frame("src" = rep(NA, length(fisher.list)),
+                        "trgt" = rep(NA, length(fisher.list)),
+                        "pval" = rep(NA, length(fisher.list)))
+
+# populate
+for (i in 1:length(fisher.price)) {
+  fisher.df$src[i]  <- str_split(names(fisher.price)[i], " ")[[1]][1]
+  fisher.df$trgt[i] <- str_split(names(fisher.price)[i], " ")[[1]][2]
+  fisher.df$pval[i] <- fisher.price[[i]]$p.value
+}
+
+# a few more cleanups
+fisher.df.tidy <- fisher.df %>% 
+  separate(src, into = paste0("src.", c("chrom", "start", "end", "gt")), remove = F, sep= "_") %>% 
+  separate(trgt, into = paste0("trgt.", c("chrom", "start", "end", "gt")), remove = F, sep = "_") %>% 
+  mutate(src.bin = str_replace_all(src, "(.+)_[0-9]$", "\\1")) %>% 
+  mutate(trgt.bin = str_replace_all(trgt, "(.+)_[0-9]$", "\\1")) 
+  
+  # arrange(src.chrom, src.start, src.end, trgt.chsrc.gt, trgt.gt)
+head(fisher.df.tidy)
+```
+
+```{r}
+fisher.df.tidy$src.bin.num <- rep(NA, nrow(fisher.df.tidy))
+fisher.df.tidy$trgt.bin.num <- rep(NA, nrow(fisher.df.tidy)) 
+
+for (i in 1:nrow(fisher.df.tidy)) {
+  fisher.df.tidy$src.bin.num[i] <- which(unique(dosage_genos$bin) == fisher.df.tidy$src.bin[i])
+  fisher.df.tidy$trgt.bin.num[i] <- which(unique(dosage_genos$bin) == fisher.df.tidy$trgt.bin[i])
+}
+```
+
+```{r}
+View(fisher.df.tidy)
+```
+
+```{r}
+# make glorious figure
+ggplot(fisher.df.tidy, aes(x = src.bin.num, y = trgt.bin.num, color = pval)) +
+  geom_tile()
 ```
 
 ```{r}
@@ -310,4 +339,3 @@ fisher.list
 # for visualization, plot 2-D points based on source and target bins. Color by inter-vs intrachromosomal, as well as by
 # significance threshold.
 ```
-
