@@ -162,6 +162,9 @@ for (i in 1:nrow(fisher.df.tidy)) {
   fisher.df.tidy$trgt.bin.num[i] <- which(unique(dosage_genos$bin) == fisher.df.tidy$trgt.bin[i])
 }
 
+# almost forgot the most important part
+write_tsv(fisher.df.tidy, "2019_0116_fisher_dosage.tsv", col_names = T)
+
 p <- ggplot(fisher.df.tidy, aes(x = src.bin.num, y = trgt.bin.num, color = pval)) +
   geom_tile()
 ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
