@@ -12,17 +12,18 @@ TODO:
    basis of a chi square test or similar. Done
 2. Loops for nonredundantly comparing alleles at all polymorphic loci. Done
 3. Generate input data structure with lapply call. Doneish.
-4. Multiple test correction. 
+4. Multiple test correction. I'm going to do Benjamini-Hochberg FDR correction after getting all p-values,
+   so this is getting tabled for now.
+5. Try to speed up initialization of count data. This set of four nested for loops is taking way too long to run.
 
 ```{r}
 library(tidyverse)
 ```
 
 ```{r}
-# add monomorphic filter as high up as possible to make compute faster
 dosage_genos <- read_tsv("2019_0107_LOP_250k_dosage_genotypes_40percband.tsv", col_names = T) %>% 
   mutate(bin = paste(chrom, start, end, sep = "_"))
-  # filter(bin %in% c("chr01_0_250000", "chr01_250000_500000")) # training wheels, gradually ease off of them
+  # filter(bin %in% c("chr01_0_250000", "chr01_250000_500000")) # training wheels
 head(dosage_genos)
 ```
 
@@ -61,6 +62,65 @@ dosage_genos_trifilt <-  dosage_genos %>%
 # split by bin, did this to get contingency tables of dosage genotypes
 dosage_genos_split <- split(dosage_genos_trifilt, f=dosage_genos_trifilt$bin)
 ```
+
+```{r}
+head(dosage_genos_trifilt)
+```
+
+```{r}
+# can probably do split-apply-combine more elegantly
+# see here for inspiration: http://www.stat.wisc.edu/~yandell/R_for_data_sciences/curate/tidyverse.html
+derpy <- dosage_genos %>% 
+  count(bin, cluster, dosage.gt) # %>% 
+  # filter(n > 3) %>%  # removes outliers, may need to change this threshold
+  # filter(n < 160) # removes monomorphic, may need to change this threshold
+# table(derpy$n)
+  # group_by(bin, dosage.gt) %>% 
+  # summarize(dosage.gt.count = )
+View(derpy)
+```
+
+```{r}
+# generate all nonredundant comparisons from derpy
+derpy_crossed <- derpy %>% 
+  setNames(paste0("target.", names(.))) %>% 
+  crossing(derpy) %>% 
+  filter(target.bin != bin & target.dosage.gt != dosage.gt) %>% # remove nonself, know that redundant comparisons will still be there
+  filter(target.n > 3) %>% 
+  filter(n > 3) %>%
+  mutate(comparison = ifelse(target.bin > bin, paste(target.bin, bin, sep = "_"), paste(bin, target.bin, sep = "_")))
+
+# not the tidyverse way, but won't crash like my attempt above did.
+# problem is I don't know how to sort and paste on the fly like this
+# maybe an ifelse?
+# for (i in 1:nrow(derpy_crossed)) {
+#   derpy_crossed$comparison[i] <- paste(sort(c(derpy_crossed$target.bin[i], derpy_crossed$bin[i])), collapse = "_")
+# }
+
+# then, filter by comparison
+```
+
+```{r}
+# derpy_crossed$comparison <- rep(NA, nrow(derpy_crossed))
+
+# for (i in 1:nrow(derpy_crossed$))
+# 
+# paste(sort(c(derpy_crossed$target.bin[1], derpy_crossed$bin[1])), collapse = "_")
+# 
+# for (i in 1:nrow(derpy_crossed)) {
+#   derpy_crossed$comparison[i] <- paste(sort(c(derpy_crossed$target.bin[i], derpy_crossed$bin[i])), collapse = "_")
+# }
+
+# nrow(derpy_crossed)
+# head(derpy_crossed)
+```
+
+```{r}
+# only thing to add to derpy_crossed is the number of individuals for comparison in the target
+# paste(sort(c(derpy_crossed$target.bin[1], derpy_crossed$bin[1])), sep = "_")
+# paste(sort(c(derpy_crossed$target.bin[1], derpy_crossed$bin[1])), collapse = "_")
+```
+
 
 ```{r}
 # remove outlier individuals from data frame to be parsed while constructing fisher contingency tables
@@ -117,6 +177,7 @@ head(dosage_invariable_bins)
 ```{r}
 monomorph_exclude <- outliers_exclude[which(names(outliers_exclude) %in% dosage_variable_bins)]
 head(monomorph_exclude)
+length(monomorph_exclude)
 ```
 
 ```{r}
@@ -179,8 +240,32 @@ geno.list <- list() # stores genotype count data for each nonoverlapping bin
 for (i in 1:length(monomorph_exclude)) { 
   geno.list[[i]] <- data.frame("bin" = names(monomorph_exclude)[i], monomorph_exclude[[i]]) %>% 
     mutate(Var1 = as.character(Var1)) %>% 
-    mutate(bin_allele = paste(bin, Var1, sep = "_"))
+    rename(dosage.gt = Var1) %>%
+    rename(count = Freq) %>%
+    mutate(bin_allele = paste(bin, dosage.gt, sep = "_"))
 }
+# length(geno.list)
+# colnames(geno.list[[1]])
+# lapply(geno.list, function(x) length(x))
+```
+
+```{r}
+# can I just build the data frame straight away?
+# how to make all nonredundant pairwise combinations of rows in two data frames?
+# if there are only two alleles in a bin, this isn't hard. Just need to reverse the row order of 1 data frame
+# since this needs to handle multiallelic cases, that's not going to work.
+
+# use geno.list[[1]] and geno.list[[2]] to find an efficient way to do this
+
+```
+
+
+```{r}
+geno.list[[1]]
+```
+
+```{r}
+geno.list[[2]]
 ```
 
 ```{r}
@@ -301,8 +386,9 @@ View(fisher.df.tidy)
 
 ```{r}
 # make glorious figure
-ggplot(fisher.df.tidy, aes(x = src.bin.num, y = trgt.bin.num, color = pval)) +
+p <- ggplot(fisher.df.tidy, aes(x = src.bin.num, y = trgt.bin.num, color = pval)) +
   geom_tile()
+ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
 ```
 
 ```{r}
