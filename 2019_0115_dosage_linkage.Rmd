@@ -78,7 +78,6 @@ dosage_geno_counts <- dosage_genos %>%
   filter(n > 3) %>% 
   filter(n < 164)
 head(dosage_geno_counts)
-nrow(dosage_geno_counts)
 ```
 
 ```{r}
@@ -89,7 +88,6 @@ dosage_geno_comps <- dosage_geno_counts %>%
   mutate(bincomp = ifelse(target.bin > bin, paste(target.bin, target.dosage.gt, bin, dosage.gt, sep = "_"), paste(bin, dosage.gt, target.bin, target.dosage.gt, sep = "_"))) # %>% 
   # distinct(bincomp, .keep_all = T) # here, .keep_all=T specifies to keep all variables
 head(dosage_geno_comps) 
-nrow(dosage_geno_comps)
 ```
 
 ```{r}
@@ -136,10 +134,6 @@ blah$fisher.pval <- apply(blah, 1, function(x) {
 ```
 
 ```{r}
-head(blah)
-```
-
-```{r}
 # finally, add numeric bin back
 blah$src.bin.num <- rep(NA, nrow(blah))
 blah$target.bin.num <- rep(NA, nrow(blah))
@@ -148,10 +142,6 @@ for (i in 1:nrow(blah)) {
   blah$src.bin.num[i] <- which(unique(dosage_genos$bin) == blah$bin[i])
   blah$target.bin.num[i] <- which(unique(dosage_genos$bin) == blah$target.bin[i])
 }
-```
-
-```{r}
-head(blah)
 ```
 
 ```{r}
