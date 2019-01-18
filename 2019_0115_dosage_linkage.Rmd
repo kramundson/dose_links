@@ -23,7 +23,7 @@ library(tidyverse)
 ```{r}
 dosage_genos <- read_tsv("2019_0107_LOP_250k_dosage_genotypes_40percband.tsv", col_names = T) %>% 
   mutate(bin = paste(chrom, start, end, sep = "_")) %>% 
-  filter(chrom == "chr08") # putting the training wheels back on
+  filter(chrom %in% c("chr08")) # putting the training wheels back on
   # filter(bin %in% c("chr01_0_250000", "chr01_250000_500000")) # training wheels
 head(dosage_genos)
 ```
@@ -33,27 +33,27 @@ Note, I don't use this data structure in the rest of hte analysis. Left for post
 
 ```{r}
 # filter out affected chromosome for each trisomic. These have been dealt with already.
-dosage_genos_trifilt <-  dosage_genos %>% 
-  filter(!(sample == "2x_LOP868_238" & chrom == "chr01")) %>%
-  filter(!(sample == "2x_LOP868_259" & chrom == "chr02")) %>%
-  filter(!(sample == "2x_LOP868_292" & chrom == "chr02")) %>%
-  filter(!(sample == "2x_LOP868_452" & chrom == "chr02")) %>%
-  filter(!(sample == "2x_LOP868_460" & chrom == "chr02")) %>%
-  filter(!(sample == "2x_LOP868_1157" & chrom == "chr02")) %>%
-  filter(!(sample == "2x_LOP868_1190" & chrom == "chr02")) %>%
-  filter(!(sample == "2x_LOP868_373" & chrom == "chr03")) %>%
-  filter(!(sample == "2x_LOP868_028" & chrom == "chr04")) %>%
-  filter(!(sample == "2x_LOP868_433" & chrom == "chr04")) %>%
-  filter(!(sample == "2x_LOP868_293" & chrom == "chr05")) %>%
-  filter(!(sample == "2x_LOP868_363" & chrom == "chr05")) %>%
-  filter(!(sample == "2x_LOP868_172" & chrom == "chr06")) %>%
-  filter(!(sample == "2x_LOP868_065" & chrom == "chr07")) %>%
-  filter(!(sample == "2x_LOP868_272" & chrom == "chr07")) %>%
-  filter(!(sample == "2x_LOP868_108" & chrom == "chr08")) %>%
-  filter(!(sample == "2x_LOP868_488" & chrom == "chr08")) %>%
-  filter(!(sample == "2x_LOP868_397" & chrom == "chr10")) %>%
-  filter(!(sample == "2x_LOP868_373" & chrom == "chr02")) %>%
-  filter(!(sample == "2x_LOP868_128" & chrom == "chr12"))
+# dosage_genos_trifilt <-  dosage_genos %>% 
+#   filter(!(sample == "2x_LOP868_238" & chrom == "chr01")) %>%
+#   filter(!(sample == "2x_LOP868_259" & chrom == "chr02")) %>%
+#   filter(!(sample == "2x_LOP868_292" & chrom == "chr02")) %>%
+#   filter(!(sample == "2x_LOP868_452" & chrom == "chr02")) %>%
+#   filter(!(sample == "2x_LOP868_460" & chrom == "chr02")) %>%
+#   filter(!(sample == "2x_LOP868_1157" & chrom == "chr02")) %>%
+#   filter(!(sample == "2x_LOP868_1190" & chrom == "chr02")) %>%
+#   filter(!(sample == "2x_LOP868_373" & chrom == "chr03")) %>%
+#   filter(!(sample == "2x_LOP868_028" & chrom == "chr04")) %>%
+#   filter(!(sample == "2x_LOP868_433" & chrom == "chr04")) %>%
+#   filter(!(sample == "2x_LOP868_293" & chrom == "chr05")) %>%
+#   filter(!(sample == "2x_LOP868_363" & chrom == "chr05")) %>%
+#   filter(!(sample == "2x_LOP868_172" & chrom == "chr06")) %>%
+#   filter(!(sample == "2x_LOP868_065" & chrom == "chr07")) %>%
+#   filter(!(sample == "2x_LOP868_272" & chrom == "chr07")) %>%
+#   filter(!(sample == "2x_LOP868_108" & chrom == "chr08")) %>%
+#   filter(!(sample == "2x_LOP868_488" & chrom == "chr08")) %>%
+#   filter(!(sample == "2x_LOP868_397" & chrom == "chr10")) %>%
+#   filter(!(sample == "2x_LOP868_373" & chrom == "chr02")) %>%
+#   filter(!(sample == "2x_LOP868_128" & chrom == "chr12"))
 ```
 
 ```{r}
@@ -71,8 +71,8 @@ dosage_geno_comps <- dosage_geno_counts %>%
   setNames(paste0("target.", names(.))) %>% 
   crossing(dosage_geno_counts) %>%
   filter(target.bin != bin & target.dosage.gt != dosage.gt) %>%
-  mutate(bincomp = ifelse(target.bin > bin, paste(target.bin, target.dosage.gt, bin, dosage.gt, sep = "_"), paste(bin, dosage.gt, target.bin, target.dosage.gt, sep = "_"))) # %>% 
-  # distinct(bincomp, .keep_all = T) # here, .keep_all=T specifies to keep all variables
+  mutate(bincomp = ifelse(target.bin > bin, paste(target.bin, target.dosage.gt, bin, dosage.gt, sep = "_"), paste(bin, dosage.gt, target.bin, target.dosage.gt, sep = "_"))) %>% 
+  distinct(bincomp, .keep_all = T) # here, .keep_all=T specifies to keep all variables
 head(dosage_geno_comps) 
 ```
 
@@ -81,24 +81,23 @@ dosage_geno_comps$inds.in.target <- rep(NA, nrow(dosage_geno_comps))
 dosage_geno_comps$inds.out.target <- rep(NA, nrow(dosage_geno_comps))
 
 # takes a goddamn year to run, how to speed this up?
+ptm <- proc.time()
 for (i in 1:nrow(dosage_geno_comps)) {
 # for (i in 1:10) {
   source.bin <- dosage_geno_comps$bin[i]
   source.allele <- dosage_geno_comps$dosage.gt[i]
   target.bin <- dosage_geno_comps$target.bin[i]
   target.allele <- dosage_geno_comps$target.dosage.gt[i]
-  dosage_geno_comps$inds.in.target[i] <- nrow(filter(dosage_genos,
-                                                     sample %in% filter(dosage_genos, bin == source.bin & dosage.gt == source.allele)$sample &
-                                                     bin == target.bin &
-                                                     dosage.gt == target.allele))
-  dosage_geno_comps$inds.out.target[i] <- nrow(filter(dosage_genos,
-                                                      sample %in% filter(dosage_genos, bin == source.bin & dosage.gt == source.allele)$sample &
-                                                      bin == target.bin &
-                                                      dosage.gt != target.allele))
+  inds <- filter(dosage_genos, bin == source.bin & dosage.gt == source.allele)$sample
+  con <- filter(dosage_genos, sample %in% inds & bin == target.bin)
+  dosage_geno_comps$inds.in.target[i] <- nrow(filter(con, dosage.gt == target.allele))
+  dosage_geno_comps$inds.out.target[i] <- nrow(filter(con, dosage.gt != target.allele))
 }
+proc.time() - ptm
 ```
 
-> populates 24,000 lookups in <time>. Very slow. How can I speed this up?
+> Very slow. Within chromosome comparison takes about 4 minutes. This is going to scale exponentially with
+the number of bins and alleles under comparison.
 
 ```{r}
 dosage_geno_counts_split <- split(dosage_geno_counts, f=dosage_geno_counts$bin)
@@ -131,9 +130,21 @@ for (i in 1:nrow(blah)) {
 ```
 
 ```{r}
+# for graphing purposes, may want to check src.bin.num and target.bin.num, and reverse source-target so that all tiles show up on the same side of the diagonal
+# test this using a single chromosome
+blah <- blah %>%
+  mutate(src.bin.num.plot = ifelse(src.bin.num > target.bin.num, src.bin.num, target.bin.num)) %>%  # source plot always greater of src.bin.num and target.bin.num
+  mutate(target.bin.num.plot = ifelse(src.bin.num > target.bin.num, target.bin.num, src.bin.num)) # target plot always lesser of src.bin.num and target.bin.num
+```
+
+```{r}
 # make glorious figure
-p <- ggplot(blah, aes(x = src.bin.num, y = target.bin.num, color = fisher.pval)) +
+# p <- ggplot(blah, aes(x = src.bin.num, y = target.bin.num, color = fisher.pval)) +
+#   geom_tile()
+# p
+
+q <- ggplot(blah, aes(x = src.bin.num.plot, y = target.bin.num.plot, color = fisher.pval)) +
   geom_tile()
-p
-ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
+q
+# ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
 ```
