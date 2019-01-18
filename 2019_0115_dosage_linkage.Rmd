@@ -22,15 +22,18 @@ library(tidyverse)
 
 ```{r}
 dosage_genos <- read_tsv("2019_0107_LOP_250k_dosage_genotypes_40percband.tsv", col_names = T) %>% 
-  mutate(bin = paste(chrom, start, end, sep = "_"))
+  mutate(bin = paste(chrom, start, end, sep = "_")) %>% 
+  filter(chrom == "chr08") # putting the training wheels back on
   # filter(bin %in% c("chr01_0_250000", "chr01_250000_500000")) # training wheels
 head(dosage_genos)
 ```
 
 ```{r}
-# progressively ease up on the training wheels
-# dosage_genos_training <- dosage_genos %>% 
-#   filter(bin %in% unique(dosage_genos$bin)[1:10])
+# get number of clusters for each bin from dosage_genos
+# test <- dosage_genos %>% 
+#   count(bin, dosage.gt)
+# test2 <- split(test, f=test$bin)
+# test2[[1]]
 ```
 
 ```{r}
@@ -60,368 +63,101 @@ dosage_genos_trifilt <-  dosage_genos %>%
 
 ```{r}
 # split by bin, did this to get contingency tables of dosage genotypes
-dosage_genos_split <- split(dosage_genos_trifilt, f=dosage_genos_trifilt$bin)
+# dosage_genos_split <- split(dosage_genos_trifilt, f=dosage_genos_trifilt$bin)
 ```
 
 ```{r}
-head(dosage_genos_trifilt)
+# head(dosage_genos_trifilt)
 ```
 
 ```{r}
-# can probably do split-apply-combine more elegantly
+# a more elegant split-apply-combine approach
 # see here for inspiration: http://www.stat.wisc.edu/~yandell/R_for_data_sciences/curate/tidyverse.html
-derpy <- dosage_genos %>% 
-  count(bin, cluster, dosage.gt) # %>% 
-  # filter(n > 3) %>%  # removes outliers, may need to change this threshold
-  # filter(n < 160) # removes monomorphic, may need to change this threshold
-# table(derpy$n)
-  # group_by(bin, dosage.gt) %>% 
-  # summarize(dosage.gt.count = )
-View(derpy)
+dosage_geno_counts <- dosage_genos %>% 
+  count(bin, cluster, dosage.gt) %>% 
+  filter(n > 3) %>% 
+  filter(n < 164)
+head(dosage_geno_counts)
+nrow(dosage_geno_counts)
 ```
 
 ```{r}
-# generate all nonredundant comparisons from derpy
-derpy_crossed <- derpy %>% 
+dosage_geno_comps <- dosage_geno_counts %>% 
   setNames(paste0("target.", names(.))) %>% 
-  crossing(derpy) %>% 
-  filter(target.bin != bin & target.dosage.gt != dosage.gt) %>% # remove nonself, know that redundant comparisons will still be there
-  filter(target.n > 3) %>% 
-  filter(n > 3) %>%
-  mutate(comparison = ifelse(target.bin > bin, paste(target.bin, bin, sep = "_"), paste(bin, target.bin, sep = "_")))
-
-# not the tidyverse way, but won't crash like my attempt above did.
-# problem is I don't know how to sort and paste on the fly like this
-# maybe an ifelse?
-# for (i in 1:nrow(derpy_crossed)) {
-#   derpy_crossed$comparison[i] <- paste(sort(c(derpy_crossed$target.bin[i], derpy_crossed$bin[i])), collapse = "_")
-# }
-
-# then, filter by comparison
+  crossing(dosage_geno_counts) %>%
+  filter(target.bin != bin & target.dosage.gt != dosage.gt) %>%
+  mutate(bincomp = ifelse(target.bin > bin, paste(target.bin, target.dosage.gt, bin, dosage.gt, sep = "_"), paste(bin, dosage.gt, target.bin, target.dosage.gt, sep = "_"))) # %>% 
+  # distinct(bincomp, .keep_all = T) # here, .keep_all=T specifies to keep all variables
+head(dosage_geno_comps) 
+nrow(dosage_geno_comps)
 ```
 
 ```{r}
-# derpy_crossed$comparison <- rep(NA, nrow(derpy_crossed))
+dosage_geno_comps$inds.in.target <- rep(NA, nrow(dosage_geno_comps))
+dosage_geno_comps$inds.out.target <- rep(NA, nrow(dosage_geno_comps))
 
-# for (i in 1:nrow(derpy_crossed$))
-# 
-# paste(sort(c(derpy_crossed$target.bin[1], derpy_crossed$bin[1])), collapse = "_")
-# 
-# for (i in 1:nrow(derpy_crossed)) {
-#   derpy_crossed$comparison[i] <- paste(sort(c(derpy_crossed$target.bin[i], derpy_crossed$bin[i])), collapse = "_")
-# }
-
-# nrow(derpy_crossed)
-# head(derpy_crossed)
-```
-
-```{r}
-# only thing to add to derpy_crossed is the number of individuals for comparison in the target
-# paste(sort(c(derpy_crossed$target.bin[1], derpy_crossed$bin[1])), sep = "_")
-# paste(sort(c(derpy_crossed$target.bin[1], derpy_crossed$bin[1])), collapse = "_")
-```
-
-
-```{r}
-# remove outlier individuals from data frame to be parsed while constructing fisher contingency tables
-# this seems needlessly complicated...
-
-# returns a list of named vectors. names of list are bin names. names of vectors are outlier dosage allele in that bin
-outliers <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)[which(table(x$dosage.gt) <= 3)])
-
-# traverse outliers, parsing out bins and outlier dosage allele in each
-z <- list()
-
-# loop populates list of outlier bins and dosage alleles
-for (i in 1:length(outliers)) {
-  if (length(outliers[[i]]) >= 1) { # needs to skip bins without rows
-  z[[i]] <- data.frame('dosage.gt' = names(outliers[[i]]),
-             'bin' = names(outliers)[[i]])
-  }
+# takes a goddamn year to run, how to speed this up?
+for (i in 1:nrow(dosage_geno_comps)) {
+# for (i in 1:10) {
+  source.bin <- dosage_geno_comps$bin[i]
+  source.allele <- dosage_geno_comps$dosage.gt[i]
+  target.bin <- dosage_geno_comps$target.bin[i]
+  target.allele <- dosage_geno_comps$target.dosage.gt[i]
+  dosage_geno_comps$inds.in.target[i] <- nrow(filter(dosage_genos,
+                                                     sample %in% filter(dosage_genos, bin == source.bin & dosage.gt == source.allele)$sample &
+                                                     bin == target.bin &
+                                                     dosage.gt == target.allele))
+  dosage_geno_comps$inds.out.target[i] <- nrow(filter(dosage_genos,
+                                                      sample %in% filter(dosage_genos, bin == source.bin & dosage.gt == source.allele)$sample &
+                                                      bin == target.bin &
+                                                      dosage.gt != target.allele))
 }
+```
 
-# bind rows to get single data frame of bin-allele combinations of all outliers
-z.done <- bind_rows(z) %>% 
-  mutate(allele = paste(bin, dosage.gt, sep = "_"))
+> populates 24,000 lookups in <time>. Very slow. How can I speed this up?
 
-# using z.done, remove outlier bin-allele combinations from table of dosage alleles by individual.
-dosage_genos_outlierfilt <- dosage_genos_trifilt %>% 
-  mutate(allele = paste(bin, dosage.gt, sep = "_")) %>% 
-  filter(!allele %in% z.done$allele)
-
-# did we filter anything?
-nrow(dosage_genos_trifilt)
-nrow(dosage_genos_outlierfilt) # yes
-
-# parsable data structure for nested loops is stored in dosage_genos_outlierfilt
+```{r}
+dosage_geno_counts_split <- split(dosage_geno_counts, f=dosage_geno_counts$bin)
+bin_allele_counts <- unlist(lapply(dosage_geno_counts_split, function(x) nrow(x)))
+bin_allele_counts <- data.frame("target.bin" = names(bin_allele_counts),
+           "target.allele.count" = bin_allele_counts)
 ```
 
 ```{r}
-# filter out other unique dosage variants. May need to adjust thresholding due to what I'm guessing are undetected tetraploids in the population
-outliers_exclude <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)[which(table(x$dosage.gt) > 3)]) # drops outliers, monomorphic still here
-# outliers_exclude
+blah <- left_join(dosage_geno_comps, bin_allele_counts, by = "target.bin") %>% 
+  mutate(target.expect = round((inds.in.target + inds.out.target) / target.allele.count))
 ```
 
 ```{r}
-# what's left? This provides the scope of the analysis: the bins that are polymorphic
-# lifted from other scripts, may need to develop this further
-test <- unlist(lapply(outliers_exclude, function(x) length(x)))
-# head(test)
-# length(unique(names(which(test >= 2))))
-dosage_variable_bins <- unique(names(which(test >= 2)))
-head(dosage_variable_bins)
-dosage_invariable_bins <- unique(names(which(test < 2)))
-head(dosage_invariable_bins)
+blah$fisher.pval <- apply(blah, 1, function(x) {
+  tbl <- matrix(as.numeric(c(x[10], x[11], x[13], x[13])) , ncol = 2, byrow = T)
+  fisher.test(tbl)$p.value
+})
 ```
 
 ```{r}
-monomorph_exclude <- outliers_exclude[which(names(outliers_exclude) %in% dosage_variable_bins)]
-head(monomorph_exclude)
-length(monomorph_exclude)
+head(blah)
 ```
 
 ```{r}
-# start with an example case
-# geno_summaries <- lapply(dosage_genos_split, function(x) table(x$dosage.gt)) # outliers_exclude takes the place of this
-# geno_summaries[[1]]
-# names(geno_summaries[[1]])
-# names(geno_summaries)[1]
+# finally, add numeric bin back
+blah$src.bin.num <- rep(NA, nrow(blah))
+blah$target.bin.num <- rep(NA, nrow(blah))
 
-# first example data frame
-# example <- data.frame("bin" = names(geno_summaries)[1],
-#                       geno_summaries[[1]]) %>% 
-#   mutate(Var1 = as.character(Var1)) %>% 
-#   mutate(bin_allele = paste(bin, Var1, sep = "_"))
-# example
-
-# second example data frame
-# example2 <- data.frame("bin" = names(geno_summaries)[2],
-#                        geno_summaries[[2]]) %>% 
-#   mutate(Var1 = as.character(Var1)) %>% 
-#   mutate(bin_allele = paste(bin, Var1, sep = "_"))
-# example2
-
-# build Fisher 2x2 contigency tables by comparison of both example data frames
-# for (i in 1:nrow(example)) { # becomes xth entry in geno list
-#   for (j in 1:nrow(example2)) { # becomes x+1th entry in geno list
-#     observed.in <- example2[j,3] # hereafter x+1th entry in geno list, whatever variable I end up using for that.
-#     observed.out <- sum(example2$Freq) - observed.in
-#     expected <- example2[j,3] / 2
-#     fisher.table <- matrix(c(observed.in, observed.out, expected, expected), nrow = 2)
-#     list.name <- paste(example$bin_allele[i], example2$bin_allele[j], sep = " ")
-#     fisher.list[[list.name]] <- fisher.table
-#   }
-# }
-```
-
-```{r}
-# # next, build a more generalizable case using lists
-# geno.list <- list() # stores genotype count data for each nonoverlapping bin
-# 
-# # build two examples as before, but this time have them be in the same list
-# geno.list[[1]] <- data.frame("bin" = names(geno_summaries)[1], geno_summaries[[1]]) %>%
-#   mutate(Var1 = as.character(Var1)) %>%
-#   mutate(bin_allele = paste(bin, Var1, sep = "_"))
-# geno.list[[1]]
-# 
-# # a second listy example
-# geno.list[[2]] <- data.frame("bin" = names(geno_summaries)[2], geno_summaries[[2]]) %>%
-#   mutate(Var1 = as.character(Var1)) %>%
-#   mutate(bin_allele = paste(bin, Var1, sep = "_"))
-# geno.list[[2]]
-```
-
-```{r}
-# Generalizable conversion of genotype summary data to list of summary data
-geno.list <- list() # stores genotype count data for each nonoverlapping bin
-
-# work in progress chunk for generating geno.list using lapply call or loop
-# for (i in 1:length(geno_summaries)) { 
-for (i in 1:length(monomorph_exclude)) { 
-  geno.list[[i]] <- data.frame("bin" = names(monomorph_exclude)[i], monomorph_exclude[[i]]) %>% 
-    mutate(Var1 = as.character(Var1)) %>% 
-    rename(dosage.gt = Var1) %>%
-    rename(count = Freq) %>%
-    mutate(bin_allele = paste(bin, dosage.gt, sep = "_"))
-}
-# length(geno.list)
-# colnames(geno.list[[1]])
-# lapply(geno.list, function(x) length(x))
-```
-
-```{r}
-# can I just build the data frame straight away?
-# how to make all nonredundant pairwise combinations of rows in two data frames?
-# if there are only two alleles in a bin, this isn't hard. Just need to reverse the row order of 1 data frame
-# since this needs to handle multiallelic cases, that's not going to work.
-
-# use geno.list[[1]] and geno.list[[2]] to find an efficient way to do this
-
-```
-
-
-```{r}
-geno.list[[1]]
-```
-
-```{r}
-geno.list[[2]]
-```
-
-```{r}
-# # sausage making to overhaul fisher exact comparison to be more like Luca's
-# 
-# # need to find subset of individuals that have the matching genotype in the target bin
-# # then, the question is whether this subset is randomly distributed amongst the alleles in the target bin or not?
-# 
-# # keep in mind i would've locked in the allele comparison by this point
-# 
-# source.bin <- "chr01_1000000_1250000"
-# source.cluster <- 1
-# 
-# target.bin <- "chr01_0_250000"
-# target.cluster <- 1
-# 
-# # define individuals in source bin
-# match.source.allele <- dosage_genos_outlierfilt %>%
-#   filter(bin == source.bin & dosage.gt == source.cluster)
-# nrow(match.source.allele)
-# 
-# # look at same individuals in target bin
-# target.allele.dist <- dosage_genos_outlierfilt %>%
-#   filter(bin == target.bin & sample %in% match.source.allele$sample)
-# 
-# g <- table(target.allele.dist$dosage.gt)
-# 
-# target.cluster.in.count <- g[which(names(g) == target.cluster)]
-# target.cluster.out.count <- sum(g) - target.cluster.in.count
-# target.cluster.null <- round(mean(g))
-# 
-# target.cluster.in.count
-# target.cluster.out.count
-# target.cluster.null
-# 
-# matrix(c(target.cluster.in.count, target.cluster.out.count, target.cluster.null, target.cluster.null), nrow = 2)
-# 
-# # not sure how this is going to handle multialleleic cases. There are a lot of them...
-```
-
-```{r}
-# build fisher comparisons for all pairwise allele comparisons between two polymorphic loci
-fisher.list <- list() # stores 2x2 contingency tables, lapply call fisher exact test at the end.
-
-# nonredundant all by all pairwise comparison of data frames in list. each fisher contingency table saved as a named entry in the list.
-for (x in seq(1, length(geno.list)-1)) { # loop through all except last bins. these are "source"
-  # print(x)
-  for (y in seq(x+1, length(geno.list))) { # all pairwise "target" bins, given the same source bin
-    # print(y)
-    for (i in 1:nrow(geno.list[[x]])) { # loop all alleles in source bin at hand
-       for (j in 1:nrow(geno.list[[y]])) { # loop all alleles in target bin at hand
-         source.bin <- geno.list[[x]][i,1]
-         source.gt  <- geno.list[[x]][i,2]
-         target.bin <- geno.list[[y]][j,1]
-         target.gt  <- geno.list[[y]][j,2]
-         # define individuals in source bin
-         match.source.allele <- dosage_genos_outlierfilt %>%
-            filter(bin == source.bin & dosage.gt == source.gt)
-         target.allele.dist <- dosage_genos_outlierfilt %>%
-            filter(bin == target.bin & sample %in% match.source.allele$sample) # why is this failing? It worked before!
-         g <- table(target.allele.dist$dosage.gt)
-         target.cluster.in.count <- g[which(names(g) == target.gt)]
-         target.cluster.out.count <- sum(g) - target.cluster.in.count
-         target.cluster.null <- round(mean(g))
-         fisher.table <- matrix(c(target.cluster.in.count, target.cluster.out.count, target.cluster.null, target.cluster.null), nrow = 2)
-         list.name <- paste(geno.list[[x]]$bin_allele[i], geno.list[[y]]$bin_allele[j], sep = " ")
-         fisher.list[[list.name]] <- fisher.table
-      }
-    }
-  }
-}
-# fisher.list 
-```
-
-```{r}
-# TODO: Parse Fisher exact output, return as flat table so I can finish making new correlation matrix
-fisher.price <- lapply(fisher.list, function(x) fisher.test(x))
-fisher.price[[1]]
-```
-
-```{r}
-# init empty data frame
-fisher.df <- data.frame("src" = rep(NA, length(fisher.list)),
-                        "trgt" = rep(NA, length(fisher.list)),
-                        "pval" = rep(NA, length(fisher.list)))
-
-# populate
-for (i in 1:length(fisher.price)) {
-  fisher.df$src[i]  <- str_split(names(fisher.price)[i], " ")[[1]][1]
-  fisher.df$trgt[i] <- str_split(names(fisher.price)[i], " ")[[1]][2]
-  fisher.df$pval[i] <- fisher.price[[i]]$p.value
-}
-
-# a few more cleanups
-fisher.df.tidy <- fisher.df %>% 
-  separate(src, into = paste0("src.", c("chrom", "start", "end", "gt")), remove = F, sep= "_") %>% 
-  separate(trgt, into = paste0("trgt.", c("chrom", "start", "end", "gt")), remove = F, sep = "_") %>% 
-  mutate(src.bin = str_replace_all(src, "(.+)_[0-9]$", "\\1")) %>% 
-  mutate(trgt.bin = str_replace_all(trgt, "(.+)_[0-9]$", "\\1")) 
-  
-  # arrange(src.chrom, src.start, src.end, trgt.chsrc.gt, trgt.gt)
-head(fisher.df.tidy)
-```
-
-```{r}
-fisher.df.tidy$src.bin.num <- rep(NA, nrow(fisher.df.tidy))
-fisher.df.tidy$trgt.bin.num <- rep(NA, nrow(fisher.df.tidy)) 
-
-for (i in 1:nrow(fisher.df.tidy)) {
-  fisher.df.tidy$src.bin.num[i] <- which(unique(dosage_genos$bin) == fisher.df.tidy$src.bin[i])
-  fisher.df.tidy$trgt.bin.num[i] <- which(unique(dosage_genos$bin) == fisher.df.tidy$trgt.bin[i])
+for (i in 1:nrow(blah)) {
+  blah$src.bin.num[i] <- which(unique(dosage_genos$bin) == blah$bin[i])
+  blah$target.bin.num[i] <- which(unique(dosage_genos$bin) == blah$target.bin[i])
 }
 ```
 
 ```{r}
-View(fisher.df.tidy)
+head(blah)
 ```
 
 ```{r}
 # make glorious figure
-p <- ggplot(fisher.df.tidy, aes(x = src.bin.num, y = trgt.bin.num, color = pval)) +
+p <- ggplot(blah, aes(x = src.bin.num, y = target.bin.num, color = fisher.pval)) +
   geom_tile()
-ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
-```
-
-```{r}
-# nonredundant all by all pairwise comparison of data frames in list. each fisher contingency table saved as a named entry in the list.
-# for (x in seq(1, length(geno.list)-1)) { # loop through all except last bins. these are "source"
-#   # print(x)
-#   for (y in seq(x+1, length(geno.list))) { # all pairwise "target" bins, given the same source bin
-#     # print(y)
-#     for (i in 1:nrow(geno.list[[x]])) { # loop all alleles in source bin at hand
-#        for (j in 1:nrow(geno.list[[y]])) { # loop all alleles in target bin at hand
-#          observed.in <- geno.list[[y]][i,3] # this has to change to match the sample lookup written above. Before I change too many things, leave this code block for posterity
-#          # print(observed.in)
-#          observed.out <- sum(geno.list[[y]]$Freq) - observed.in
-#          # print(observed.out)
-#          expected <- geno.list[[y]][j,3]
-#          # print(expected)
-#          fisher.table <- matrix(c(observed.in, observed.out, expected, expected), nrow = 2)
-#          list.name <- paste(geno.list[[x]]$bin_allele[i], geno.list[[y]]$bin_allele[j], sep = " ")
-#          fisher.list[[list.name]] <- fisher.table
-#          # print(list.name)
-#       }
-#     }
-#   }
-# }
-# fisher.list
-```
-
-```{r}
-# once fisher list has been constructed, do fisher exact test on all tables in fisher.list with an lapply call
-# lapply(fisher.list, fisher.test)
-```
-
-```{r}
-# for visualization, plot 2-D points based on source and target bins. Color by inter-vs intrachromosomal, as well as by
-# significance threshold.
+p
+# ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
 ```
