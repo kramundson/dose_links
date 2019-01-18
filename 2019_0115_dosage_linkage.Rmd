@@ -8,7 +8,7 @@ output: html_notebook
 TODO:
 
 1. Define criteria for filtering out monomorphic bins. Either a percentage or average threshold will work.
-   Note, in a typical mapping context, alleles this rare would be considered severely distored and removed on the
+   Note, in a typical mapping context, alleles this rare would be considered severely distored and removed on thes
    basis of a chi square test or similar. Done
 2. Loops for nonredundantly comparing alleles at all polymorphic loci. Done
 3. Generate input data structure with lapply call. Doneish.
@@ -28,13 +28,8 @@ dosage_genos <- read_tsv("2019_0107_LOP_250k_dosage_genotypes_40percband.tsv", c
 head(dosage_genos)
 ```
 
-```{r}
-# get number of clusters for each bin from dosage_genos
-# test <- dosage_genos %>% 
-#   count(bin, dosage.gt)
-# test2 <- split(test, f=test$bin)
-# test2[[1]]
-```
+2. Optional: Filter out only the excess chromosome in each trisomic individual.
+Note, I don't use this data structure in the rest of hte analysis. Left for posterity.
 
 ```{r}
 # filter out affected chromosome for each trisomic. These have been dealt with already.
@@ -59,15 +54,6 @@ dosage_genos_trifilt <-  dosage_genos %>%
   filter(!(sample == "2x_LOP868_397" & chrom == "chr10")) %>%
   filter(!(sample == "2x_LOP868_373" & chrom == "chr02")) %>%
   filter(!(sample == "2x_LOP868_128" & chrom == "chr12"))
-```
-
-```{r}
-# split by bin, did this to get contingency tables of dosage genotypes
-# dosage_genos_split <- split(dosage_genos_trifilt, f=dosage_genos_trifilt$bin)
-```
-
-```{r}
-# head(dosage_genos_trifilt)
 ```
 
 ```{r}
@@ -149,5 +135,5 @@ for (i in 1:nrow(blah)) {
 p <- ggplot(blah, aes(x = src.bin.num, y = target.bin.num, color = fisher.pval)) +
   geom_tile()
 p
-# ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
+ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
 ```
