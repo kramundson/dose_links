@@ -9,8 +9,8 @@ library(tidyverse)
 
 # read in dosage genotpye data, obtained by mean shift clustering of relative coverage values in nonoverlapping bins
 dosage_genos <- read_tsv("2019_0107_LOP_250k_dosage_genotypes_40percband.tsv", col_names = T) %>% 
-  mutate(bin = paste(chrom, start, end, sep = "_")) %>% 
-  filter(chrom %in% c("chr08", "chr09")) # test case using 2 chromosomes. Expect strong linkage within chromosomes but not between
+  mutate(bin = paste(chrom, start, end, sep = "_")) # %>% 
+  # filter(chrom %in% c("chr08", "chr09")) # test case using 2 chromosomes. Expect strong linkage within chromosomes but not between
 
 # tally by dosage allele in each bin
 # see here for inspiration: http://www.stat.wisc.edu/~yandell/R_for_data_sciences/curate/tidyverse.html
@@ -67,18 +67,21 @@ fisher$fisher.pval <- apply(fisher, 1, function(x) {
 # finally, add numeric bin back
 fisher$src.bin.num <- rep(NA, nrow(fisher))
 fisher$target.bin.num <- rep(NA, nrow(fisher))
+dg.bins <- unique(dosage_genos$bin)
 for (i in 1:nrow(fisher)) {
-  fisher$src.bin.num[i] <- which(unique(dosage_genos$bin) == fisher$bin[i])
-  fisher$target.bin.num[i] <- which(unique(dosage_genos$bin) == fisher$target.bin[i])
+  fisher$src.bin.num[i] <- which(dg.bins == fisher$bin[i])
+  fisher$target.bin.num[i] <- which(dg.bins == fisher$target.bin[i])
 }
 
 # for graphing purposes, may want to check src.bin.num and target.bin.num, and reverse source-target so that all tiles show up on the same side of the diagonal
 # tested this using a single chromosome, works. Only plots below the diagonal.
 fisher <- fisher %>%
-  mutate(src.bin.num.plot = ifelse(src.bin.num > target.bin.num, src.bin.num, target.bin.num)) %>%  # source plot always greater of src.bin.num and target.bin.num
+  mutate(src.bin.num.plot = ifelse(src.bin.num > target.bin.num, src.bin.num, target.bin.num)) %>%  
   mutate(target.bin.num.plot = ifelse(src.bin.num > target.bin.num, target.bin.num, src.bin.num)) # target plot always lesser of src.bin.num and target.bin.num
 
+write_tsv(fisher, "2019_0118_fisher_pairwise_linkages.tsv", col_names = T, delim = "\t")
+
 # draw plot
-p <- ggplot(fisher, aes(x = src.bin.num, y = target.bin.num, color = fisher.pval)) +
-  geom_tile()
-ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
+# p <- ggplot(fisher, aes(x = src.bin.num.plot, y = target.bin.num.plot, color = fisher.pval)) +
+#   geom_tile()
+# ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
