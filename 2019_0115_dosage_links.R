@@ -34,21 +34,19 @@ dosage_geno_comps$inds.out.target <- rep(NA, nrow(dosage_geno_comps))
 
 # get counts of individuals matching allele under comparison and not matching allele under comparison in target bin.
 # is a whale of a for loop
+ptm <- proc.time()
 for (i in 1:nrow(dosage_geno_comps)) {
   # for (i in 1:10) { # training
   source.bin <- dosage_geno_comps$bin[i]
   source.allele <- dosage_geno_comps$dosage.gt[i]
   target.bin <- dosage_geno_comps$target.bin[i]
   target.allele <- dosage_geno_comps$target.dosage.gt[i]
-  dosage_geno_comps$inds.in.target[i] <- nrow(filter(dosage_genos,
-                                                     sample %in% filter(dosage_genos, bin == source.bin & dosage.gt == source.allele)$sample &
-                                                       bin == target.bin &
-                                                       dosage.gt == target.allele))
-  dosage_geno_comps$inds.out.target[i] <- nrow(filter(dosage_genos,
-                                                      sample %in% filter(dosage_genos, bin == source.bin & dosage.gt == source.allele)$sample &
-                                                        bin == target.bin &
-                                                        dosage.gt != target.allele))
+  inds <- filter(dosage_genos, bin == source.bin & dosage.gt == source.allele)$sample
+  con <- filter(dosage_genos, sample %in% inds & bin == target.bin)
+  dosage_geno_comps$inds.in.target[i] <- nrow(filter(con, dosage.gt == target.allele))
+  dosage_geno_comps$inds.out.target[i] <- nrow(filter(con, dosage.gt != target.allele))
 }
+proc.time() - ptm
 
 # get data frame of observed target allele counts in each bin
 dosage_geno_counts_split <- split(dosage_geno_counts, f=dosage_geno_counts$bin)
