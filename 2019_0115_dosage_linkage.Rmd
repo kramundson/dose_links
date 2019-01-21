@@ -23,7 +23,7 @@ library(tidyverse)
 ```{r}
 dosage_genos <- read_tsv("2019_0107_LOP_250k_dosage_genotypes_40percband.tsv", col_names = T) %>% 
   mutate(bin = paste(chrom, start, end, sep = "_")) %>% 
-  filter(chrom %in% c("chr08")) # putting the training wheels back on
+  filter(chrom %in% c("chr08", "chr09")) # putting the training wheels back on
   # filter(bin %in% c("chr01_0_250000", "chr01_250000_500000")) # training wheels
 head(dosage_genos)
 ```
@@ -122,19 +122,36 @@ blah$fisher.pval <- apply(blah, 1, function(x) {
 # finally, add numeric bin back
 blah$src.bin.num <- rep(NA, nrow(blah))
 blah$target.bin.num <- rep(NA, nrow(blah))
-
+dg.bins <- unique(dosage_genos$bin)
 for (i in 1:nrow(blah)) {
-  blah$src.bin.num[i] <- which(unique(dosage_genos$bin) == blah$bin[i])
-  blah$target.bin.num[i] <- which(unique(dosage_genos$bin) == blah$target.bin[i])
+  blah$src.bin.num[i] <- which(dg.bins == blah$bin[i])
+  blah$target.bin.num[i] <- which(dg.bins == blah$target.bin[i])
 }
 ```
 
 ```{r}
 # for graphing purposes, may want to check src.bin.num and target.bin.num, and reverse source-target so that all tiles show up on the same side of the diagonal
 # test this using a single chromosome
+# source plot always greater of src.bin.num and target.bin.num
+# target plot always lesser of src.bin.num and target.bin.num
+
+# also add Benjamini-Hochberg FDR correction of pvalues
+# rank P values
+# Determine critical BH p-value (i/m)*Q where
+# i is the rank of the p-value at hand
+# m is the total number of tests
+# Q is the chosen false discovery rate
+# the largest P value that has P < (i/m)*Q is significant, and all other smaller P values are significant. All others are not.
+
+fdr.rate <- 0.05
+ntests <- nrow(blah)
 blah <- blah %>%
-  mutate(src.bin.num.plot = ifelse(src.bin.num > target.bin.num, src.bin.num, target.bin.num)) %>%  # source plot always greater of src.bin.num and target.bin.num
-  mutate(target.bin.num.plot = ifelse(src.bin.num > target.bin.num, target.bin.num, src.bin.num)) # target plot always lesser of src.bin.num and target.bin.num
+  mutate(src.bin.num.plot = ifelse(src.bin.num > target.bin.num, src.bin.num, target.bin.num)) %>%  
+  mutate(target.bin.num.plot = ifelse(src.bin.num > target.bin.num, target.bin.num, src.bin.num)) %>% 
+  # mutate(fisher.pval.plot = ifelse(fisher.pval < 0.001, fisher.pval, NA))
+  arrange(fisher.pval) %>% 
+  rowid_to_column("fisher.pval.rank") %>% 
+  mutate(fdr.bh.corrected = fdr.rate * fisher.pval.rank / ntests)
 ```
 
 ```{r}
@@ -142,8 +159,7 @@ blah <- blah %>%
 # p <- ggplot(blah, aes(x = src.bin.num, y = target.bin.num, color = fisher.pval)) +
 #   geom_tile()
 # p
-
-q <- ggplot(blah, aes(x = src.bin.num.plot, y = target.bin.num.plot, color = fisher.pval)) +
+q <- ggplot(filter(blah, fdr.bh.corrected <= 0.005), aes(x = src.bin.num.plot, y = target.bin.num.plot)) +
   geom_tile()
 q
 # ggsave("2019_1116_fishermtx.pdf", width = 6, height = 6, units = "in", device = "pdf")
